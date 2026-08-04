@@ -207,7 +207,7 @@
         <div class="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-3">
           <div>
             <label class="block text-xs font-semibold text-slate-500 mb-1">Search Associate / Driver ID</label>
-            <input type="text" id="matrixSearchInput" oninput="renderDashboard()" placeholder="Search Name or Driver ID..." class="border rounded-lg p-2 text-sm bg-slate-50 w-full" />
+            <input type="text" id="matrixSearchInput" oninput="renderDashboard()" placeholder="Search Name..." class="border rounded-lg p-2 text-sm bg-slate-50 w-full" />
           </div>
 
           <div>
@@ -598,6 +598,9 @@
             <p class="text-xs text-slate-500">In/Out times fetch from Attendance sheet upload. Helmet selfies completed manually.</p>
           </div>
           <div class="flex flex-wrap gap-2">
+            <button onclick="forceResetAttendanceTracker()" class="bg-rose-600 hover:bg-rose-700 text-white text-xs font-semibold px-3 py-2 rounded-lg shadow transition flex items-center gap-1">
+              🧹 Clear Tracker Data
+            </button>
             <label class="cursor-pointer bg-purple-600 hover:bg-purple-700 text-white text-xs font-semibold px-3 py-2 rounded-lg shadow transition flex items-center gap-1">
               📥 Upload Attendance CSV/Excel
               <input type="file" id="attendanceFileInput" accept=".csv, .xlsx, .xls" class="hidden" />
@@ -906,7 +909,8 @@
         const lower = k.toLowerCase().replace(/[\s_-]/g, '');
         return lower.includes('driver') || lower.includes('associate') || lower.includes('carrier') || lower.includes('agent');
       });
-      return matchKey ? item[matchKey] : (item['Driver ID'] || item['driver_id'] || item['Driver'] || '');
+      const val = matchKey ? item[matchKey] : (item['Driver ID'] || item['driver_id'] || item['Driver'] || '');
+      return (val && val !== 'Unassigned') ? val : 'Unassigned';
     }
 
     function extractReason(item) {
@@ -918,6 +922,7 @@
       return matchKey ? item[matchKey] : (item['Reason'] || item['reason'] || item['Cancel Reason'] || item['Failure Reason'] || '-');
     }
 
+    // ENFORCED: Strict check against Manage Associates Database. Returns "Unassigned" if missing.
     function getAssociateName(driverId) {
       if (!driverId || driverId === 'Unassigned') return 'Unassigned';
       const cleanId = driverId.toString().trim();
@@ -925,16 +930,17 @@
       const matchedKey = Object.keys(driverMap).find(k => k.trim().toLowerCase() === cleanId.toLowerCase());
       if (matchedKey) {
         const info = driverMap[matchedKey];
-        return typeof info === 'object' ? (info.name || cleanId) : info;
+        const resultName = typeof info === 'object' ? (info.name || '') : info;
+        return resultName.trim() ? resultName : 'Unassigned';
       }
-      return cleanId; 
+      return 'Unassigned'; 
     }
 
     function mapRowData(item) {
       const trackingId = item['Tracking ID'] || item['tracking_id'] || item['TrackingId'] || '';
       const rawShipOption = item['Ship Option'] || item['ship_option'] || item['ShipOption'] || 'C-Return';
       const segment = getSegmentFromShipOption(rawShipOption);
-      const rawDriverId = extractDriverId(item) || 'Unassigned';
+      const rawDriverId = extractDriverId(item);
       const reason = extractReason(item);
 
       return {
@@ -1507,6 +1513,13 @@
     }
 
     // --- ATTENDANCE & HELMET TRACKER LOGIC ---
+    function forceResetAttendanceTracker() {
+      if (!confirm("Are you sure you want to clear all existing Attendance, In/Out times, and Helmet Selfie details?")) return;
+      helmetTrackerData = {};
+      syncAttendanceTracker(true);
+      alert("Attendance & Helmet Tracker data has been cleaned completely.");
+    }
+
     function syncAttendanceTracker(resetSession = false) {
       const csvDriverIds = [...new Set([...rawData, ...standaloneCReturnData].map(d => d['Driver ID']))].filter(id => id && id !== 'Unassigned');
       const csvAssociates = [...new Set(csvDriverIds.map(id => getAssociateName(id)))].filter(a => a !== 'Unassigned');
@@ -1519,7 +1532,7 @@
       const allUniqueAssociates = [...new Set([...csvAssociates, ...stationTeamAssociates])];
       document.getElementById('trackerAssocCount').innerText = allUniqueAssociates.length;
 
-      // When uploading a new dump CSV or resetting session, clear previous attendance/helmet memory
+      // Clear memory if explicit reset requested
       if (resetSession) {
         helmetTrackerData = {};
       }
